@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Bulk Image + Text Sender (CSV)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fa;padding:18px}
+    .card{max-width:900px;margin:18px auto;background:#fff;padding:18px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
+    label{font-weight:600;margin-top:8px;display:block}
+    input[type="file"], input[type="number"], textarea{width:100%;padding:8px;margin-top:6px;border:1px solid #ddd;border-radius:6px}
+    button{padding:10px 14px;border:0;border-radius:6px;cursor:pointer}
+    .btn-primary{background:#007bff;color:#fff}
+    .btn-danger{background:#d9534f;color:#fff}
+    .inline{display:inline-block;margin-right:8px}
+    .small{font-size:13px;color:#666}
+    #log{height:240px;overflow:auto;background:#f9f9f9;padding:10px;border-radius:6px;border:1px solid #eee}
+    .progressWrap{background:#eee;border-radius:6px;overflow:hidden;height:14px;margin-top:8px}
+    .progressBar{height:100%;background:#28a745;width:0%}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Bulk Image + Text Sender (CSV)</h2>
+    <p class="small">Sends image + caption to every number from CSV using <code>POST http://localhost:3000/send-image</code></p>
+
+    <label>CSV file (first column = numbers). You may provide one number per line or CSV with columns.</label>
+    <input id="csvFile" type="file" accept=".csv,text/csv">
+
+    <label>Image (required)</label>
+    <input id="imageFile" type="file" accept="image/*">
+
+    <label>Caption / Message (you can use new lines)</label>
+    <textarea id="caption" rows="6" placeholder="Hello Sir,\n\nThis is product details..."></textarea>
+
+    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+      <div style="flex:1">
+        <label>Delay between messages (ms)</label>
+        <input id="delayMs" type="number" value="800" min="200" step="100">
+        <div class="small">Set a delay to reduce rate-limit risk. 800ms recommended.</div>
+      </div>
+
+      <div style="width:200px">
+        <label>Max parallel (concurrency)</label>
+        <input id="concurrency" type="number" value="1" min="1" max="5">
+        <div class="small">1 = sequential. Increase carefully.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
+      <button id="startBtn" class="btn-primary">Start Sending</button>
+      <button id="stopBtn" class="btn-danger" style="display:none">Stop</button>
+      <span style="margin-left:12px" id="summary" class="small"></span>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="progressWrap"><div id="progressBar" class="progressBar"></div></div>
+    </div>
+
+    <h4 style="margin-top:14px">Log / Results</h4>
+    <pre id="log"></pre>
+
+  </div>
+
+<script>
+
+function log(msg){
+  const ts = new Date().toLocaleTimeString();
+  logEl.textContent = '[${ts}] ${msg}\n' + logEl.textContent;
+}
+
+const csvFileEl = document.getElementById('csvFile');
+const imageFileEl = document.getElementById('imageFile');
+const captionEl = document.getElementById('caption');
+const delayEl = document.getElementById('delayMs');
+const concurrencyEl = document.getElementById('concurrency');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const logEl = document.getElementById('log');
+const summaryEl = document.getElementById('summary');
+const progressBar = document.getElementById('progressBar');
+
+let stopRequested = false;
+
+function readCSVFile(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject('Failed to read file');
+    reader.onload = () => {
+      const text = reader.result;
+      const rows = text.split(/\r?\n/).map(r => r.trim()).filter(r => r);
+      const numbers = rows.map(r => {
+        const first = r.split(/[,;\t]/)[0].replace(/(^"|"$)/g,'').trim();
+        return first;
+      }).filter(n => n);
+      resolve(numbers);
+    };
+    reader.readAsText(file);
+  });
+}
+
+async function sendToNumber(number, caption, imageFile){
+  const fd = new FormData();
+  fd.append('number', number);
+  fd.append('caption', caption);
+  fd.append('file', imageFile);
+
+  try {
+    const res = await fetch('http://localhost:3000/send-image', {
+      method: 'POST',
+      body: fd
+    });
+    const json = await res.json().catch(()=>null);
+    const ok = res.ok && (json?.status === true || json?.ok === true);
+    return { ok, info: json };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+async function processQueue(numbers, caption, imageFile, delayMs, concurrency){
+  let success=0, failed=0;
+  const total = numbers.length;
+  let processed = 0;
+
+  function updateProgress(){
+    const pct = Math.round((processed/total)*100);
+    progressBar.style.width = pct + '%';
+    summaryEl.textContent = 'Processed: ${processed}/${total} | Success: ${success} | Failed: ${failed}';
+  }
+
+  const queue = numbers.slice();
+  const workers = new Array(concurrency).fill(0).map(async ()=>{
+    while(queue.length && !stopRequested){
+      const num = queue.shift();
+      log('Sending to ${num} ...');
+      try {
+        const r = await sendToNumber(num, caption, imageFile);
+        if (r.ok) {
+          success++;
+          log('✔ ${num} - OK');
+        } else {
+          failed++;
+          log('✖ ${num} - FAIL | ${r.error || JSON.stringify(r.info)}');
+        }
+      } catch (err) {
+        failed++;
+        log('✖ ${num} - EXCEPTION ${err}');
+      }
+
+      processed++;
+      updateProgress();
+      await sleep(delayMs);
+    }
+  });
+
+  await Promise.all(workers);
+  return { success, failed, total };
+}
+
+startBtn.addEventListener('click', async ()=>{
+  stopRequested = false;
+
+  const csvFile = csvFileEl.files[0];
+  const imageFile = imageFileEl.files[0];
+  const caption = captionEl.value || '';
+  const delayMs = parseInt(delayEl.value || '800');
+  const concurrency = parseInt(concurrencyEl.value || '1');
+
+  if (!csvFile) return alert('Choose CSV');
+  if (!imageFile) return alert('Choose Image');
+
+  startBtn.style.display='none';
+  stopBtn.style.display='inline-block';
+  logEl.textContent='';
+  progressBar.style.width='0%';
+  summaryEl.textContent='';
+
+  try {
+    const numbers = await readCSVFile(csvFile);
+    if (!numbers.length) return alert('CSV has no numbers');
+
+    log('Starting send to ${numbers.length} numbers...');
+
+    const result = await processQueue(numbers, caption, imageFile, delayMs, concurrency);
+
+    log('Finished. Success: ${result.success} | Failed: ${result.failed}');
+    alert('Done. Success: ${result.success}, Failed: ${result.failed}');
+  } catch (err) {
+    log('ERROR: ' + err);
+    alert('Error: ' + err);
+  }
+
+  startBtn.style.display='inline-block';
+  stopBtn.style.display='none';
+  stopRequested=false;
+});
+
+stopBtn.addEventListener('click', ()=>{
+  stopRequested = true;
+  log('STOP requested.');
+  stopBtn.style.display='none';
+});
+
+</script>
+</body>
+</html>

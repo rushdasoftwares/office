@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bulk Image + Text Sender</title>
+</head>
+<body>
+
+<h2>Send Image + Text to CSV Numbers</h2>
+
+<!-- CSV Upload -->
+<label>Select CSV File:</label>
+<input type="file" id="csvFile" accept=".csv">
+<br><br>
+
+<!-- Caption -->
+<label>Caption:</label>
+<input type="textarea" id="caption" placeholder="Enter caption message">
+<br><br>
+
+<!-- Image Upload -->
+<label>Select Image:</label>
+<input type="file" id="imageFile" accept="image/*">
+<br><br>
+
+<button onclick="sendBulk()">Send to All</button>
+
+<script>
+// Read CSV
+function readCSV(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const rows = e.target.result.split(/\r?\n/);
+            const numbers = rows.map(r => r.trim()).filter(r => r !== "");
+            resolve(numbers);
+        };
+        reader.readAsText(file);
+    });
+}
+
+async function sendBulk() {
+
+    const csvFile = document.getElementById("csvFile").files[0];
+    const caption = document.getElementById("caption").value;
+    const image = document.getElementById("imageFile").files[0];
+
+    if (!csvFile || !image) {
+        alert("Please select CSV and Image");
+        return;
+    }
+
+    const numbers = await readCSV(csvFile);
+    alert("Total Numbers: " + numbers.length);
+
+    for (const number of numbers) {
+        const formData = new FormData();
+        formData.append("number", number);
+        formData.append("caption", caption);
+        formData.append("file", image);
+
+        await fetch("http://localhost:3000/send-image", {
+            method: "POST",
+            body: formData
+        });
+
+        console.log("Sent to: " + number);
+    }
+
+    alert("All messages sent!");
+}
+</script>
+
+</body>
+</html>

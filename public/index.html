@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WhatsApp Bulk Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background:#f7f7f7; }
+        .box { background:#fff;padding:20px;border-radius:10px;box-shadow:0 0 10px #ddd; }
+    </style>
+</head>
+
+<body>
+<div class="container mt-4">
+
+    <h2 class="text-center mb-4">📨 WhatsApp Bulk Sender</h2>
+
+    <div class="row">
+
+        <!-- TEXT MESSAGE -->
+        <div class="col-md-4">
+            <div class="box">
+                <h5>Send Text</h5>
+                <input id="txt_number" type="text" class="form-control mb-2" placeholder="91xxxxxxxxxx">
+                <textarea id="txt_msg" class="form-control mb-2" placeholder="Enter message"></textarea>
+                <button class="btn btn-primary w-100" onclick="sendText()">Send Text</button>
+            </div>
+        </div>
+
+        <!-- IMAGE -->
+        <div class="col-md-4">
+            <div class="box">
+                <h5>Send Image</h5>
+                <input id="img_number" type="text" class="form-control mb-2" placeholder="91xxxxxxxxxx">
+                <input id="img_file" type="file" accept="image/*" class="form-control mb-2">
+                <input id="img_caption" class="form-control mb-2" placeholder="Caption (optional)">
+                <button class="btn btn-success w-100" onclick="sendImage()">Send Image</button>
+            </div>
+        </div>
+
+        <!-- PDF -->
+        <div class="col-md-4">
+            <div class="box">
+                <h5>Send PDF</h5>
+                <input id="pdf_number" type="text" class="form-control mb-2" placeholder="91xxxxxxxxxx">
+                <input id="pdf_file" type="file" accept="application/pdf" class="form-control mb-2">
+                <button class="btn btn-dark w-100" onclick="sendPDF()">Send PDF</button>
+            </div>
+        </div>
+
+   <!-- PDF -->
+        <div class="col-md-4">
+            <div class="box">
+                <h5>BULK Message</h5>
+				<textarea id="numbers" class="form-control mb-2" placeholder="Enter numbers, one per line"></textarea>
+				<textarea id="message" class="form-control mb-2" placeholder="Enter message"></textarea>
+				<button class="btn btn-dark w-100" onclick="sendBulk()">Send Bulk</button>
+            </div>
+        </div>
+
+
+        <div class="col-md-4">
+            <div class="box">
+                <h5>BULK Message API</h5>
+<input class="form-control mb-2" type="text" id="number" placeholder="Enter number without +91">
+<input class="form-control mb-2" type="text" id="caption" placeholder="Enter message text">
+<input class="form-control mb-2" type="file" id="imageFile">
+
+<button class="btn btn-dark w-100" onclick="sendImage2()">Send Image + Text</button>
+            </div>
+        </div>
+        
+    </div>
+
+
+</div>
+
+<script>
+function sendBulk() {
+    let numbers = document.getElementById("numbers").value.split("\n");
+    let message = document.getElementById("message").value;
+
+    fetch("/api/send-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numbers, message })
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert("Sent: " + data.success + " | Failed: " + data.failed);
+    });
+}
+
+    // -----------------------------
+    // SEND TEXT
+    // -----------------------------
+    async function sendText() {
+        const number = document.getElementById("txt_number").value;
+        const message = document.getElementById("txt_msg").value;
+
+        let res = await fetch("/send-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ number, message })
+        });
+
+        const data = await res.json();
+        alert(data.msg || data.error);
+    }
+
+    // -----------------------------
+    // SEND IMAGE
+    // -----------------------------
+    async function sendImage() {
+        const number = document.getElementById("img_number").value;
+        const caption = document.getElementById("img_caption").value;
+
+        const file = document.getElementById("img_file").files[0];
+        const form = new FormData();
+
+        form.append("number", number);
+        form.append("caption", caption);
+        form.append("file", file);
+
+        let res = await fetch("/send-image", { method: "POST", body: form });
+        const data = await res.json();
+        alert(data.msg || data.error);
+    }
+
+    // -----------------------------
+    // SEND PDF
+    // -----------------------------
+    async function sendPDF() {
+        const number = document.getElementById("pdf_number").value;
+        const file = document.getElementById("pdf_file").files[0];
+
+        const form = new FormData();
+        form.append("number", number);
+        form.append("file", file);
+
+        let res = await fetch("/send-pdf", { method: "POST", body: form });
+        const data = await res.json();
+        alert(data.msg || data.error);
+    }
+	
+
+async function sendImage2() {
+    let number = document.getElementById("number").value;
+    let caption = document.getElementById("caption").value;
+    let file = document.getElementById("imageFile").files[0];
+
+    if (!number || !file) {
+        alert("Enter number and select image");
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("number", number);
+    formData.append("caption", caption);
+    formData.append("file", file);
+
+    let res = await fetch("http://localhost:3000/send-image", {
+        method: "POST",
+        body: formData
+    });
+
+    let data = await res.json();
+    console.log(data);
+
+    if (data.status) alert("Image Sent Successfully");
+    else alert("Error: " + data.error);
+}
+	
+</script>
+
+</body>
+</html>
