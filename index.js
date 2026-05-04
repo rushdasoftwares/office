@@ -1,5 +1,5 @@
 const express = require("express");
-const qrcode = require("qrcode");
+const QRCode = require("qrcode");
 const { default: makeWASocket, useMultiFileAuthState, delay } = require("@whiskeysockets/baileys");
 const multer = require("multer");
 const path = require("path");
@@ -93,15 +93,24 @@ const upload = multer({ storage: storage });
 // SHOW QR IN BROWSER
 // ------------------------------
 app.get("/qr", async (req, res) => {
-    if (!latestQR) return res.send("QR not generated yet. Restart server.");
+    if (!latestQR) {
+        return res.send("<h3>QR not ready. Please wait or restart server.</h3>");
+    }
 
-    const qrImage = await qrcode.toDataURL(latestQR);
-    res.send(`
-        <html><body style="text-align:center;font-family:Arial;">
-        <h2>Scan WhatsApp Login QR</h2>
-        <img src="${qrImage}" />
-        </body></html>
-    `);
+    try {
+        const qrImage = await QRCode.toDataURL(latestQR);
+
+        res.send(`
+            <html>
+            <body style="text-align:center;font-family:Arial;">
+            <h2>Scan WhatsApp QR</h2>
+            <img src="${qrImage}" />
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        res.send("QR generation error");
+    }
 });
 
 // ------------------------------
@@ -110,34 +119,50 @@ app.get("/qr", async (req, res) => {
 async function startWhatsapp() {
     const { state, saveCreds } = await useMultiFileAuthState("auth");
 
+    const { version } = await require("@whiskeysockets/baileys").fetchLatestBaileysVersion();
+
     sock = makeWASocket({
-        printQRInTerminal: false,
-        auth: state
+        version,
+        auth: state,
+        printQRInTerminal: true,
+        browser: ["Chrome (Linux)", "", ""]
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    // QR update
-sock.ev.on("connection.update", async (update) => {
-    const { qr, connection } = update;
+    sock.ev.on("connection.update", async (update) => {
+        const { qr, connection, lastDisconnect } = update;
 
-    if (qr) {
-        latestQR = qr;
-        console.log("QR Updated â†' Open /qr");
-    }
+        // ? FIX: store QR properly
+        if (qr) {
+            latestQR = qr;
+            console.log("? QR RECEIVED ? Open http://localhost:3000/qr");
+        }
 
-    if (connection === "open") {
-        isWhatsappReady = true;
-        console.log("WhatsApp Connected");
-    }
+        // ? Connected
+        if (connection === "open") {
+            isWhatsappReady = true;
+            latestQR = ""; // clear QR after connect
+            console.log("?? WhatsApp Connected");
+        }
 
-    if (connection === "close") {
-        isWhatsappReady = false;
-        console.log("âŒ Connection closed. Restarting...");
-        startWhatsapp();
-    }
-});
+        // ? Disconnected
+        if (connection === "close") {
+            isWhatsappReady = false;
 
+            const reason = lastDisconnect?.error?.output?.statusCode;
+
+            console.log("?? Connection closed:", reason);
+
+            // reconnect unless logged out
+            if (reason !== 401) {
+                console.log("?? Reconnecting...");
+                setTimeout(startWhatsapp, 3000);
+            } else {
+                console.log("?? Logged out. Delete /auth folder and restart.");
+            }
+        }
+    });
 }
 
 startWhatsapp();
@@ -268,6 +293,6 @@ app.listen(3000, () => {
 // -------------------------------------------------------
 
 setInterval(() => {
-    fetch("https://whatsapp-render-gn2h.onrender.com/health")
+    fetch("https://office-2her.onrender.com/health")
         .catch(() => {});
 }, 8 * 60 * 1000); // ping every 8 minutes
